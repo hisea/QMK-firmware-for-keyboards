@@ -1,0 +1,27 @@
+Fix: modifier stuck on with Hold On Other Key Press + nested mod-taps (Vial builds)
+
+Vial always compiles with -DCHORDAL_HOLD. In process_tapping(), when Hold On Other
+Key Press settles the current tapping key as held, the CHORDAL_HOLD branch pops the
+next tap-hold record from the waiting buffer as the new tapping key without checking
+that it is a *press*. A buffered release (e.g. LCTL_T up) becomes the tapping key and
+is never processed, so the modifier stays registered.
+
+Repro (LCTL_T(KC_TAB) + RGUI_T(KC_SPC), HOOKP on):
+  CTL down, SPC down, CTL up, CTL down (quick), CTL up, SPC up  ->  LCTL stuck
+
+Base: vial-kb/vial-qmk dd43959a (same code in qmk/qmk_firmware master).
+Apply: cd vial-qmk && git apply <this file>
+
+diff --git a/quantum/action_tapping.c b/quantum/action_tapping.c
+index b105cd60..fc0c506a 100644
+--- a/quantum/action_tapping.c
++++ b/quantum/action_tapping.c
+@@ -450,7 +450,7 @@ bool process_tapping(keyrecord_t *keyp) {
+                             process_record(&tapping_key);
+ 
+ #    if defined(CHORDAL_HOLD)
+-                            if (waiting_buffer_tail != waiting_buffer_head && is_tap_record(&waiting_buffer[waiting_buffer_tail])) {
++                            if (waiting_buffer_tail != waiting_buffer_head && waiting_buffer[waiting_buffer_tail].event.pressed && is_tap_record(&waiting_buffer[waiting_buffer_tail])) {
+                                 tapping_key = waiting_buffer[waiting_buffer_tail];
+                                 // Pop tail from the queue.
+                                 waiting_buffer_tail = (waiting_buffer_tail + 1) % WAITING_BUFFER_SIZE;

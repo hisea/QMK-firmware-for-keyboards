@@ -350,8 +350,42 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
+// Safety net against stuck modifiers (e.g. Ctrl staying on after Ctrl+Space):
+// a held modifier needs a held key, so if mods stay registered while no key
+// in either half is physically down, clear them.
+#define STUCK_MODS_TIMEOUT 300
+static bool any_key_down(void) {
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        if (matrix_get_row(row)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void clear_stuck_mods(void) {
+    static bool     waiting = false;
+    static uint32_t since   = 0;
+    if (get_mods() == 0 || any_key_down()) {
+        waiting = false;
+        return;
+    }
+    if (!waiting) {
+        waiting = true;
+        since   = timer_read32();
+    } else if (timer_elapsed32(since) > STUCK_MODS_TIMEOUT) {
+        waiting = false;
+        clear_mods();
+        send_keyboard_report();
+    }
+}
+
 void housekeeping_task_user(void) {
-    if (luna_jump_to_send && is_keyboard_master()) {
+    if (!is_keyboard_master()) {
+        return;
+    }
+    clear_stuck_mods();
+    if (luna_jump_to_send) {
         luna_jump_to_send = false;
         transaction_rpc_send(USER_SYNC_LUNA_JUMP, 0, NULL);
     }
